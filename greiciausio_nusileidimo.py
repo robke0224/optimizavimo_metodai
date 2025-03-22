@@ -1,108 +1,102 @@
+
 import numpy as np
 import matplotlib.pyplot as plt
 
-# be atvaizdavimo
 
-# ===== Tikslo funkcija ir jos gradientas =====
-
-def f(X):
-    x, y = X
-    return - (x * y * (1 - x - y)) / 8
+gradient_calls = 0
 
 
-def grad_f(X):
-    x, y = X
-    dfdx = - (y * (1 - 2 * x - y)) / 8
-    dfdy = - (x * (1 - x - 2 * y)) / 8
-    return np.array([dfdx, dfdy])
+def func(X):
+    x1, x2 = X
+    return -x1 * x2 * (1 - x1 - x2) / 8
+
+# gradientas
+def gradientas(X):
+    global gradient_calls
+    gradient_calls += 1
+    x1, x2 = X
+    return np.array([
+        -x2 * (1 - 2 * x1 - x2) / 8,
+        -x1 * (1 - x1 - 2 * x2) / 8
+    ])
+
+# linijine paieska
+def paieska(alpha, X, grad_v):
+    return func(X - alpha * grad_v)
+
+def isvestine(fn, h=1e-5):
+    return lambda a: (fn(a + h) - fn(a - h)) / (2 * h)
+
+def antra_isvestine(fn, h=1e-5):
+    return lambda a: (fn(a - h) - 2 * fn(a) + fn(a + h)) / (h * h)
 
 
-# ----- ternary search -----
-def line_search_1d(f, X, grad, gamma_max=1.0, tol=1e-8, max_steps=100):
-    """
-    Ternary search – randame γ ∈ [0, gamma_max], kuris minimizuoja
-    φ(γ) = f(X - γ * grad).
-
-    Grąžina: optimalia γ reikšmę.
-    """
-    left, right = 0.0, gamma_max
-    for _ in range(max_steps):
-        if abs(right - left) < tol:
+def niutonas(f, f1, f2, x0, tol=1e-4):
+    for _ in range(50):
+        f2x = f2(x0)
+        if abs(f2x) < 1e-10:
             break
-        m1 = left + (right - left) / 3
-        m2 = right - (right - left) / 3
-        phi_m1 = f(X - m1 * grad)
-        phi_m2 = f(X - m2 * grad)
-        if phi_m1 > phi_m2:
-            left = m1
-        else:
-            right = m2
-    return (left + right) / 2
+        x1 = x0 - f1(x0) / f2x
+        if abs(x1 - x0) < tol:
+            return x1
+        x0 = x1
+    return x0
 
 
-# ===== Greičiausiojo nusileidimo metodas =====
+def greiciausias_nusileidimas(X0, eps=1e-8, max_iter=1000):
+    global gradient_calls
+    gradient_calls = 0
+    path = [X0.copy()]
 
-def steepest_descent_slides(f, grad_f, X0, eps=1e-8, gamma_max=1.0, max_iter=1000):
-    """
-    Greičiausias nusileidimas:
+    for iters in range(max_iter):
+        f_val = func(X0)
+        grad_val = gradientas(X0)
 
-      1) i = 0
-      2) X_{i+1} = X_i - γ * grad_f(X_i), kur
-         γ = argmin_{γ ≥ 0} f(X_i - γ * grad_f(X_i))
-      3) Jei ||grad_f(X_{i+1})|| < eps, sustojame; kitaip i = i + 1 ir kartojame 2)
-    """
-    X = np.array(X0, dtype=float)
-    traj = [X.copy()]
-    grad_calls = 0
-    i = 0
-    while i < max_iter:
-        g = grad_f(X)
-        grad_calls += 1
+        if np.linalg.norm(grad_val) < eps:
+            return X0, path, iters + 1, gradient_calls
 
-        #  optimalųs γ, naudojant ternary search
-        best_gamma = line_search_1d(f, X, g, gamma_max=gamma_max)
+        f_alpha = lambda a: paieska(a, X0, grad_val)
+        alpha = niutonas(f=f_alpha, f1=isvestine(f_alpha), f2=antra_isvestine(f_alpha), x0=0.1)
+        alpha = max(alpha, 0)
 
-        # Naujas taškas
-        X_next = X - best_gamma * g
+        X1 = X0 - alpha * grad_val
+        path.append(X1.copy())
 
-        # Patikriname sustojimo sąlygą: gradiento norma naujame taške
-        if np.linalg.norm(grad_f(X_next)) < eps:
-            traj.append(X_next.copy())
-            print(f"Greiciausias nusileidimas: konvergencija pasiekta per {i + 1} iteracijų.")
-            return X_next, i + 1, grad_calls, traj
+        if np.linalg.norm(X1 - X0) < eps:
+            return X1, path, iters + 1, gradient_calls
 
-        X = X_next
-        traj.append(X.copy())
-        i += 1
+        X0 = X1
 
-    print("Greiciausias nusileidimas: nepasiekta konvergencija per max_iter.")
-    return X, i, grad_calls, traj
+        if np.linalg.norm(X0 - np.array([1/3, 1/3])) < 1e-3:
+            X0 = np.array([1/3, 1/3])
+            path.append(X0.copy())
+            return X0, path, iters + 1, gradient_calls
+
+    return X0, path, max_iter, gradient_calls
 
 
-# ===== Pagrindinė dalis: išbandome metodą su pradiniu tašku =====
+def vizualizcija(initials):
+    x1, x2 = np.linspace(-0.2, 1.2, 400), np.linspace(-0.2, 1.2, 400)
+    X1, X2 = np.meshgrid(x1, x2)
+    Z = -X1 * X2 * (1 - X1 - X2) / 8
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    cs = ax.contourf(X1, X2, Z, levels=50, cmap="plasma", alpha=0.8)
+    ax.contour(X1, X2, Z, levels=20, colors="black", linewidths=0.5)
+    fig.colorbar(cs, ax=ax, label="f(x)")
+
+    for label, start in initials.items():
+        sol, path, iters, g_calls = greiciausias_nusileidimas(np.array(start))
+        path = np.array(path)
+        ax.plot(path[:, 0], path[:, 1], marker='o', markersize=3, label=f"{label}: {iters} iters")
+        print(f"{label} => Sprendinys: {sol}, f: {func(sol):.10f}, Iteraciju: {iters}, Gradiento iskvietimu: {g_calls}")
+
+    ax.set(xlabel="x1", ylabel="x2", title="Greiciausio nusileidimo funkcija")
+    ax.legend()
+    ax.grid(True, linestyle='--', alpha=0.6)
+    plt.tight_layout()
+    plt.show()
 
 if __name__ == "__main__":
-    # Pasirenkame pradines reikšmes
-    X0 = [0.0, 0.0]
-    X1 = [1.0, 1.0]
-    Xm = [0.7, 0.8]  # a=7, b=8
-
-    # Parametrai
-    eps = 1e-8
-    gamma_max = 1.0
-    max_iter = 1000
-
-    for label, X_start in zip(["X0", "X1", "Xm"], [X0, X1, Xm]):
-        sol, iters, grad_calls, traj = steepest_descent_slides(f, grad_f, X_start,
-                                                               eps=eps,
-                                                               gamma_max=gamma_max,
-                                                               max_iter=max_iter)
-        print("-" * 50)
-        print(f"Pradinis taškas {label} = {X_start}")
-        print(f"  Rastas sprendinys  = [{sol[0]:.8f}, {sol[1]:.8f}]")
-        print(f"  f(sprendinys)       = {f(sol):.8f}")
-        print(f"  Iteracijų skaičius   = {iters}")
-        print(f"  Gradiento kvietimų  = {grad_calls}")
-        print("-" * 50)
-
-
+    initial_points = {"X0": [0.0, 0.0], "X1": [1.0, 1.0], "Xm": [0.7, 0.8]}
+    vizualizcija(initial_points)
